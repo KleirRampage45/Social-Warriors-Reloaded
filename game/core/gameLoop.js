@@ -1,85 +1,58 @@
-import { emit } from './eventBus.js';
-
-let lastTime = 0;
-let accumulator = 0;
-let isRunning = false;
-let animationFrameId = null;
-let fps = 60;
-let updateCallback = null;
-let renderCallback = null;
-
-const FIXED_TIMESTEP = 1000 / 60;
-
-export function start(update, render, targetFps = 60) {
-    if (isRunning) return;
-    isRunning = true;
-    fps = targetFps;
-    updateCallback = update;
-    renderCallback = render;
-    lastTime = performance.now();
-    accumulator = 0;
-    loop();
-}
-
-export function stop() {
-    isRunning = false;
-    if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
+export class GameLoop {
+    constructor(eventBus, renderer) {
+        this.eventBus = eventBus;
+        this.renderer = renderer;
+        this.running = false;
+        this.lastTime = 0;
+        this.deltaTime = 0;
+        this.accumulator = 0;
+        this.fixedTimeStep = 1000 / 60;
+        this.animationFrameId = null;
     }
-}
 
-export function pause() {
-    isRunning = false;
-    if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
+    start() {
+        if (this.running) return;
+        this.running = true;
+        this.lastTime = performance.now();
+        this.tick(this.lastTime);
+        this.eventBus.emit('game:started');
     }
-}
 
-export function resume() {
-    if (!isRunning && updateCallback) {
-        isRunning = true;
-        lastTime = performance.now();
-        loop();
-    }
-}
-
-function loop() {
-    if (!isRunning) return;
-    animationFrameId = requestAnimationFrame(loop);
-
-    const currentTime = performance.now();
-    const deltaTime = currentTime - lastTime;
-    lastTime = currentTime;
-
-    accumulator += deltaTime;
-
-    const maxSteps = 10;
-    let steps = 0;
-    while (accumulator >= FIXED_TIMESTEP && steps < maxSteps) {
-        if (updateCallback) {
-            updateCallback(FIXED_TIMESTEP / 1000);
+    stop() {
+        this.running = false;
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
         }
-        accumulator -= FIXED_TIMESTEP;
-        steps++;
+        this.eventBus.emit('game:stopped');
     }
 
-    if (accumulator > FIXED_TIMESTEP * 2) {
-        accumulator = 0;
+    tick(currentTime) {
+        if (!this.running) return;
+
+        this.deltaTime = currentTime - this.lastTime;
+        this.lastTime = currentTime;
+
+        this.accumulator += this.deltaTime;
+
+        while (this.accumulator >= this.fixedTimeStep) {
+            this.update(this.fixedTimeStep);
+            this.accumulator -= this.fixedTimeStep;
+        }
+
+        this.render();
+        this.eventBus.emit('game:tick', { deltaTime: this.deltaTime });
+
+        this.animationFrameId = requestAnimationFrame((t) => this.tick(t));
     }
 
-    if (renderCallback) {
-        renderCallback();
+    update(dt) {
+        this.eventBus.emit('game:update', { deltaTime: dt });
     }
 
-    emit('frame', { deltaTime, fixedSteps: steps });
-}
-
-export function getFps() {
-    return fps;
-}
-
-export function isActive() {
-    return isRunning;
+    render() {
+        if (this.renderer) {
+            this.renderer.render();
+        }
+    }
 }
