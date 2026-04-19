@@ -1,0 +1,37 @@
+{
+    "pid": "Neutral",
+    "name": "Neutral",
+    "playerInfo": {
+        "pid": "Neutral",
+        "name": "Neutral",
+        "pic": "https://avatars.githubusercontent.com/u/135655497?s=68",
+        "cash": 100,
+        "completed_tutorial": 0,
+        "default_map": 0,
+        "level": 1
+    },
+    "maps": [
+        {
+            "id": 0,
+            "world_id": 0,
+            "expansions": [35, 36, 45, 46, 47, 37, 57, 55, 56, 58, 48, 38, 44, 54, 34, 25, 26, 27, 24, 64, 65, 66, 67, 68, 69, 23],
+            "grid": [],
+            "width": 12,
+            "height": 8
+        }
+    ],
+    "resources": {
+        "gold": 100,
+        "wood": 50,
+        "oil": 25,
+        "steel": 10
+    },
+    "storage": [],
+    "units": [],
+    "quests": {},
+    "settings": {
+        "sound": true,
+        "music": true
+    },
+    "lastSaved": 1705799336000
+}

@@ -1,187 +1,170 @@
-import { emit, on } from '../core/eventBus.js';
-import { getTileSize, getGridSize, gridToScreen } from '../core/engine.js';
+import { EventBus } from '../core/eventBus.js';
 
-let canvas = null;
-let ctx = null;
-let offsetX = 0;
-let offsetY = 0;
-let scale = 1;
-let selectedItem = null;
-let hoverCell = null;
+export class CanvasRenderer {
+    constructor(canvas, eventBus) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('2d');
+        this.eventBus = eventBus;
+        this.width = 0;
+        this.height = 0;
+        this.layers = {
+            background: null,
+            game: null,
+            ui: null,
+        };
+        this.selectedBuilding = null;
+        this.mousePosition = { x: 0, y: 0 };
 
-const LAYERS = {
-    BACKGROUND: 0,
-    GRID: 1,
-    BUILDINGS: 2,
-    UNITS: 3,
-    EFFECTS: 4,
-    UI: 5
-};
+        this.tileWidth = 64;
+        this.tileHeight = 64;
 
-export function init(canvasElement) {
-    canvas = canvasElement;
-    ctx = canvas.getContext('2d');
-
-    resize();
-
-    window.addEventListener('resize', resize);
-
-    canvas.addEventListener('mousemove', handleMouseMove);
-    canvas.addEventListener('click', handleClick);
-
-    emit('renderer:ready', {});
-}
-
-function resize() {
-    if (!canvas) return;
-    const container = canvas.parentElement;
-    canvas.width = container.clientWidth;
-    canvas.height = container.clientHeight;
-
-    const { width, height } = getGridSize();
-    const tileSize = getTileSize();
-    const gridWidth = width * tileSize;
-    const gridHeight = height * tileSize;
-
-    offsetX = Math.floor((canvas.width - gridWidth) / 2);
-    offsetY = Math.floor((canvas.height - gridHeight) / 2);
-}
-
-function handleMouseMove(e) {
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const tileSize = getTileSize();
-    const gridX = Math.floor((x - offsetX) / tileSize);
-    const gridY = Math.floor((y - offsetY) / tileSize);
-
-    const { width, height } = getGridSize();
-
-    if (gridX >= 0 && gridX < width && gridY >= 0 && gridY < height) {
-        hoverCell = { x: gridX, y: gridY };
-    } else {
-        hoverCell = null;
-    }
-}
-
-function handleClick(e) {
-    if (!hoverCell) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const tileSize = getTileSize();
-    const gridX = Math.floor((x - offsetX) / tileSize);
-    const gridY = Math.floor((y - offsetY) / tileSize);
-
-    emit('map:click', { x: gridX, y: gridY, screenX: x, screenY: y });
-}
-
-export function render(mapData) {
-    if (!ctx || !canvas) return;
-
-    clear();
-
-    drawGrid();
-
-    if (mapData?.items) {
-        drawItems(mapData.items);
+        this._init();
+        this._setupEventListeners();
     }
 
-    if (hoverCell) {
-        drawHover(hoverCell);
-    }
-}
-
-function clear() {
-    ctx.fillStyle = '#0f3460';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-}
-
-function drawGrid() {
-    const { width, height } = getGridSize();
-    const tileSize = getTileSize();
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.lineWidth = 1;
-
-    for (let x = 0; x <= width; x++) {
-        const pos = gridToScreen(x, 0, offsetX, offsetY);
-        ctx.beginPath();
-        ctx.moveTo(pos.x, pos.y);
-        ctx.lineTo(pos.x, pos.y + height * tileSize);
-        ctx.stroke();
+    _init() {
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
     }
 
-    for (let y = 0; y <= height; y++) {
-        const pos = gridToScreen(0, y, offsetX, offsetY);
-        ctx.beginPath();
-        ctx.moveTo(pos.x, pos.y);
-        ctx.lineTo(pos.x + width * tileSize, pos.y);
-        ctx.stroke();
+    _setupEventListeners() {
+        this.canvas.addEventListener('mousemove', (e) => {
+            const rect = this.canvas.getBoundingClientRect();
+            this.mousePosition = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top,
+            };
+            this.eventBus.emit('render:mousemove', this.mousePosition);
+        });
+
+        this.canvas.addEventListener('click', (e) => {
+            const rect = this.canvas.getBoundingClientRect();
+            const position = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top,
+            };
+            this.eventBus.emit('render:click', position);
+        });
+
+        this.canvas.addEventListener('mousedown', (e) => {
+            const rect = this.canvas.getBoundingClientRect();
+            const position = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top,
+                button: e.button,
+            };
+            this.eventBus.emit('render:mousedown', position);
+        });
+
+        this.canvas.addEventListener('mouseup', (e) => {
+            const rect = this.canvas.getBoundingClientRect();
+            const position = {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top,
+                button: e.button,
+            };
+            this.eventBus.emit('render:mouseup', position);
+        });
+
+        this.eventBus.on('game:update', () => this._update());
     }
 
-    ctx.strokeStyle = 'rgba(233, 69, 96, 0.5)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(offsetX, offsetY, width * tileSize, height * tileSize);
-}
-
-function drawItems(items) {
-    for (const [index, item] of Object.entries(items)) {
-        const [itemId, x, y, timestamp, orientation, queue, attr, player] = item;
-
-        drawItem(itemId, x, y, player);
+    resize() {
+        const parent = this.canvas.parentElement;
+        this.width = parent.clientWidth;
+        this.height = parent.clientHeight;
+        this.canvas.width = this.width;
+        this.canvas.height = this.height;
+        this.eventBus.emit('render:resized', { width: this.width, height: this.height });
     }
-}
 
-function drawItem(itemId, x, y, player) {
-    const pos = gridToScreen(x, y, offsetX, offsetY);
-    const tileSize = getTileSize();
+    render() {
+        this.ctx.fillStyle = '#1a1a2e';
+        this.ctx.fillRect(0, 0, this.width, this.height);
 
-    ctx.fillStyle = player === 1 ? '#4ade80' : '#f87171';
-    ctx.fillRect(pos.x + 4, pos.y + 4, tileSize - 8, tileSize - 8);
-
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 12px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(String(itemId), pos.x + tileSize / 2, pos.y + tileSize / 2);
-}
-
-function drawHover(cell) {
-    const pos = gridToScreen(cell.x, cell.y, offsetX, offsetY);
-    const tileSize = getTileSize();
-
-    ctx.fillStyle = 'rgba(233, 69, 96, 0.3)';
-    ctx.fillRect(pos.x, pos.y, tileSize, tileSize);
-
-    ctx.strokeStyle = '#e94560';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(pos.x, pos.y, tileSize, tileSize);
-}
-
-export function setScale(newScale) {
-    scale = Math.max(0.5, Math.min(2, newScale));
-}
-
-export function getOffset() {
-    return { offsetX, offsetY };
-}
-
-export function getHoverCell() {
-    return hoverCell;
-}
-
-export function screenToGrid(screenX, screenY) {
-    const tileSize = getTileSize();
-    const x = Math.floor((screenX - offsetX) / tileSize);
-    const y = Math.floor((screenY - offsetY) / tileSize);
-    const { width, height } = getGridSize();
-
-    if (x < 0 || x >= width || y < 0 || y >= height) {
-        return null;
+        this._renderBackground();
+        this._renderGrid();
+        this._renderGame();
+        this._renderUI();
     }
-    return { x, y };
+
+    _renderBackground() {
+        const gradient = this.ctx.createLinearGradient(0, 0, 0, this.height);
+        gradient.addColorStop(0, '#1a1a2e');
+        gradient.addColorStop(1, '#16213e');
+        this.ctx.fillStyle = gradient;
+        this.ctx.fillRect(0, 0, this.width, this.height);
+    }
+
+    _renderGrid() {
+        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        this.ctx.lineWidth = 1;
+
+        for (let x = 0; x <= this.width; x += this.tileWidth) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, 0);
+            this.ctx.lineTo(x, this.height);
+            this.ctx.stroke();
+        }
+
+        for (let y = 0; y <= this.height; y += this.tileHeight) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(0, y);
+            this.ctx.lineTo(this.width, y);
+            this.ctx.stroke();
+        }
+    }
+
+    _renderGame() {
+    }
+
+    _renderUI() {
+        const padding = 20;
+        const barHeight = 50;
+
+        const gradient = this.ctx.createLinearGradient(0, 0, 0, barHeight);
+        gradient.addColorStop(0, 'rgba(26, 26, 46, 0.95)');
+        gradient.addColorStop(1, 'rgba(22, 33, 62, 0.95)');
+        this.ctx.fillStyle = gradient;
+        this.ctx.fillRect(0, 0, this.width, barHeight);
+
+        this.ctx.strokeStyle = 'rgba(233, 69, 96, 0.3)';
+        this.ctx.lineWidth = 2;
+        this.ctx.beginPath();
+        this.ctx.moveTo(0, barHeight);
+        this.ctx.lineTo(this.width, barHeight);
+        this.ctx.stroke();
+
+        this.ctx.font = 'bold 18px "Segoe UI", sans-serif';
+        this.ctx.textBaseline = 'middle';
+
+        this._renderResource(20, '#ffd700', 'Gold', '100');
+        this._renderResource(120, '#8b4513', 'Wood', '50');
+        this._renderResource(220, '#1a1a1a', 'Oil', '25');
+        this._renderResource(320, '#708090', 'Steel', '10');
+    }
+
+    _renderResource(x, color, label, value) {
+        this.ctx.fillStyle = color;
+        this.ctx.font = 'bold 16px "Segoe UI", sans-serif';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText(`${label}: ${value}`, x, 28);
+    }
+
+    _update() {
+    }
+
+    getTileAt(x, y) {
+        return {
+            x: Math.floor(x / this.tileWidth),
+            y: Math.floor(y / this.tileHeight),
+        };
+    }
+
+    getTilePosition(tileX, tileY) {
+        return {
+            x: tileX * this.tileWidth,
+            y: tileY * this.tileHeight,
+        };
+    }
 }
